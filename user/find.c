@@ -42,7 +42,7 @@ void find(char *path, char *name) {
 
         memmove(ptr, dir_entry.name, DIRSIZ);
         ptr[DIRSIZ] = NULL;
-        if(stat(buffer, &state) < 0){
+        if (stat(buffer, &state) < 0) {
             printf("ls: cannot stat %s\n", buffer);
             continue;
         }
