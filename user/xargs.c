@@ -2,7 +2,7 @@
 #include "kernel/param.h"
 #include "user/user.h"
 
-#define BUFFER_SIZE     1024
+#define BUFFER_SIZE     128
 #define NULL            ((void *) 0)
 #define STDIN           0
 
@@ -24,17 +24,19 @@ int get_line(char *line_buffer) {
     return 1;
 }
 
-int append_argv(char *line, char *argv[]) {
-    int num = 0;
+void append_argv(char *line, char *buffer[], int count) {
+    int num = count;
     char delimiter[2] = " ";
     char *ptr;
 
     ptr = strtok(line, delimiter);
     char *archive = ptr;
     while (ptr != NULL) {
-        argv[num++] = ptr;
-        ptr = strtok(NULL, delimiter);
+        buffer[num] = (char *) malloc(BUFFER_SIZE);
+        strcpy(buffer[num], ptr);
+        num++;
 
+        ptr = strtok(NULL, delimiter);
         if (ptr == archive) {
             break;
         } else {
@@ -42,41 +44,26 @@ int append_argv(char *line, char *argv[]) {
         }
     }
 
-    return num;
+    buffer[num] = 0;
 }
 
 int main(int argc, char *argv[]) {
-    int argv_count;
-    char *line_buffer = (char *) malloc(sizeof(char) * BUFFER_SIZE);
-    char **argv_buffer = (char **) malloc(sizeof(char *) * MAXARG);
-    for (int i = 0; i < MAXARG; i++) {
-        argv_buffer[i] = (char *) malloc(sizeof(char));
+    char line_buffer[BUFFER_SIZE];
+    char *argv_buffer[BUFFER_SIZE];
+
+    for (int i = 1; i < argc; i++) {
+        argv_buffer[i - 1] = argv[i];
     }
 
     while (get_line(line_buffer)) {
-        for (int i = 0; i < MAXARG; i++) {
-            for (int j = 0; j < BUFFER_SIZE; j++) {
-                argv_buffer[i][j] = 0;
-            }
-        }
+        append_argv(line_buffer, argv_buffer, argc - 1);
+        memset(line_buffer, 0, BUFFER_SIZE);
 
-        for (int i = 0; i < argc - 1; i++) {
-            argv_buffer[i] = argv[i + 1];
+        if (fork() == 0) {
+            exec(argv_buffer[0], argv_buffer);
+        } else {
+            wait(0);
         }
-
-        argv_count = append_argv(line_buffer, argv_buffer + argc - 1);
-
-        if (argv_count) {
-            int pid = fork();
-            if (pid == 0) {
-                /* int sub process */
-                exec(argv_buffer[0], argv_buffer);
-            } else {
-                wait(0);
-            }
-        }
-        line_buffer = (char *) malloc(sizeof(char) * BUFFER_SIZE);
     }
-
     exit(0);
 }
