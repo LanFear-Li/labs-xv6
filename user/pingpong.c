@@ -10,16 +10,15 @@ int main(int argc, char *argv[]) {
 	pipe(child);
 
 	char BYTE[1] = {'*'};	
-	
-	int fork_pid = fork();
-	if (fork_pid == 0) {
-		// in child process
+
+	if (fork() == 0) {
+		/* in child process */
 		int pid = getpid();
 		printf("%d: received ping\n", pid);
 		write(child[1], BYTE, BYTE_SIZE);	
 		
 	} else {
-		// in parent process
+		/* in parent process */
 		write(parent[1], BYTE, BYTE_SIZE);
 		
 		int pid = getpid();
