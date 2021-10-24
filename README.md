@@ -16,9 +16,9 @@ Using **fork** we create a child process, using **pipe** we connect a pair of fi
 
 #### pirmes.c
 
-Find primes in $[2, 35]$ using the sieve of Eratosthenes in each pipeline and print out the first prime. Need to control the amount of piped file descriptors.
+Find primes in 2, 35 using the sieve of Eratosthenes in each pipeline and print out the first prime. Need to control the amount of piped file descriptors.
 
-![](/home/lanfear/Pictures/sieve.gif)
+![](/home/lanfear/Projects/labs-xv6/Image/sieve.gif)
 
 #### find.c
 
