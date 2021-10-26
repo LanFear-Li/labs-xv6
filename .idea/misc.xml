@@ -4,12 +4,14 @@
   <component name="MakefileSettings">
     <option name="linkedExternalProjectsSettings">
       <MakefileProjectSettings>
+        <option name="buildOptions" value="TOOLPREFIX=&quot;/opt/riscv/bin/riscv64-unknown-linux-gnu-&quot;" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
           </set>
         </option>
+        <option name="switches" value="TOOLPREFIX=&quot;/opt/riscv/bin/riscv64-unknown-linux-gnu-&quot;" />
         <option name="version" value="2" />
       </MakefileProjectSettings>
     </option>

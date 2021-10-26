@@ -21,6 +21,9 @@
 #include "riscv.h"
 #include "defs.h"
 #include "proc.h"
+#include "signal.h"
+
+#define CONSOLE_N   2
 
 #define BACKSPACE 0x100
 #define C(x)  ((x)-'@')  // Control-x
@@ -31,17 +34,17 @@
 // but not from write().
 //
 void
-consputc(int c)
+consputc(int i, int c)
 {
   if(c == BACKSPACE){
     // if the user typed backspace, overwrite with a space.
-    uartputc_sync('\b'); uartputc_sync(' '); uartputc_sync('\b');
+    uartputc_sync(i, '\b'); uartputc_sync(i, ' '); uartputc_sync(i, '\b');
   } else {
-    uartputc_sync(c);
+    uartputc_sync(i, c);
   }
 }
 
-struct {
+struct cons {
   struct spinlock lock;
   
   // input
@@ -50,24 +53,28 @@ struct {
   uint r;  // Read index
   uint w;  // Write index
   uint e;  // Edit index
-} cons;
+} cons[CONSOLE_N];
 
 //
 // user write()s to the console go here.
 //
 int
-consolewrite(int user_src, uint64 src, int n)
+consolewrite(int i, int user_src, uint64 src, int n)
 {
-  int i;
+  int k;
 
-  for(i = 0; i < n; i++){
-    char c;
-    if(either_copyin(&c, user_src, src+i, 1) == -1)
-      break;
-    uartputc(c);
+  if (i >= CONSOLE_N) {
+    return -1;
   }
 
-  return i;
+  for(k = 0; k < n; k++){
+    char c;
+    if(either_copyin(&c, user_src, src + k, 1) == -1)
+      break;
+    uartputc(i, c);
+  }
+
+  return k;
 }
 
 //
@@ -77,32 +84,37 @@ consolewrite(int user_src, uint64 src, int n)
 // or kernel address.
 //
 int
-consoleread(int user_dst, uint64 dst, int n)
+consoleread(int i, int user_dst, uint64 dst, int n)
 {
+  struct cons *cs = &cons[i];
   uint target;
   int c;
   char cbuf;
 
+  if (i >= CONSOLE_N) {
+    return -1;
+  }
+
   target = n;
-  acquire(&cons.lock);
+  acquire(&cs->lock);
   while(n > 0){
     // wait until interrupt handler has put some
-    // input into cons.buffer.
-    while(cons.r == cons.w){
-      if(myproc()->killed){
-        release(&cons.lock);
+    // input into cs->buffer.
+    while(cs->r == cs->w){
+      if(myproc()->killed || signal_pending()){
+        release(&cs->lock);
         return -1;
       }
-      sleep(&cons.r, &cons.lock);
+      sleep(&cs->r, &cs->lock);
     }
 
-    c = cons.buf[cons.r++ % INPUT_BUF];
+    c = cs->buf[cs->r++ % INPUT_BUF];
 
     if(c == C('D')){  // end-of-file
       if(n < target){
         // Save ^D for next time, to make sure
         // caller gets a 0-byte result.
-        cons.r--;
+        cs->r--;
       }
       break;
     }
@@ -121,7 +133,7 @@ consoleread(int user_dst, uint64 dst, int n)
       break;
     }
   }
-  release(&cons.lock);
+  release(&cs->lock);
 
   return target - n;
 }
@@ -133,57 +145,68 @@ consoleread(int user_dst, uint64 dst, int n)
 // wake up consoleread() if a whole line has arrived.
 //
 void
-consoleintr(int c)
+consoleintr(int i, int c)
 {
-  acquire(&cons.lock);
+  struct cons *cs = &cons[i];
+    
+  acquire(&cs->lock);
 
   switch(c){
+  case C('C'):
+    ttyintr(i, 'C');
+    break;
+  case C('Z'):
+    ttyintr(i, 'Z');
+    break;
   case C('P'):  // Print process list.
     procdump();
     break;
   case C('U'):  // Kill line.
-    while(cons.e != cons.w &&
-          cons.buf[(cons.e-1) % INPUT_BUF] != '\n'){
-      cons.e--;
-      consputc(BACKSPACE);
+    while(cs->e != cs->w &&
+          cs->buf[(cs->e-1) % INPUT_BUF] != '\n'){
+      cs->e--;
+      consputc(i, BACKSPACE);
     }
     break;
   case C('H'): // Backspace
   case '\x7f':
-    if(cons.e != cons.w){
-      cons.e--;
-      consputc(BACKSPACE);
+    if(cs->e != cs->w){
+      cs->e--;
+      consputc(i, BACKSPACE);
     }
     break;
   default:
-    if(c != 0 && cons.e-cons.r < INPUT_BUF){
+    if(c != 0 && cs->e-cs->r < INPUT_BUF){
       c = (c == '\r') ? '\n' : c;
 
       // echo back to the user.
-      consputc(c);
+      consputc(i, c);
 
       // store for consumption by consoleread().
-      cons.buf[cons.e++ % INPUT_BUF] = c;
+      cs->buf[cs->e++ % INPUT_BUF] = c;
 
-      if(c == '\n' || c == C('D') || cons.e == cons.r+INPUT_BUF){
+      if(c == '\n' || c == C('D') || cs->e == cs->r+INPUT_BUF){
         // wake up consoleread() if a whole line (or end-of-file)
         // has arrived.
-        cons.w = cons.e;
-        wakeup(&cons.r);
+        cs->w = cs->e;
+        wakeup(&cs->r);
       }
     }
     break;
   }
   
-  release(&cons.lock);
+  release(&cs->lock);
 }
 
 void
-consoleinit(void)
+consoleinit()
 {
-  initlock(&cons.lock, "cons");
+  int i;
 
-  uartinit();
+  for (i = 0; i < CONSOLE_N; i++) {
+    initlock(&cons[i].lock, "cons");
+    uartinit(i);
+  }
 
   // connect read and write system calls
   // to consoleread and consolewrite.

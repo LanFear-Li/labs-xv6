@@ -6,6 +6,8 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "signal.h"
+#include "signo.h"
 
 uint64
 sys_exit(void)
@@ -63,7 +65,7 @@ sys_sleep(void)
   acquire(&tickslock);
   ticks0 = ticks;
   while(ticks - ticks0 < n){
-    if(myproc()->killed){
+    if(myproc()->killed || signal_pending()){
       release(&tickslock);
       return -1;
     }
@@ -76,11 +78,11 @@ sys_sleep(void)
 uint64
 sys_kill(void)
 {
-  int pid;
+  int pid, signo;
 
-  if(argint(0, &pid) < 0)
+  if(argint(0, &pid) < 0 || argint(1, &signo) < 0)
     return -1;
-  return kill(pid);
+  return kill(pid, signo);
 }
 
 // return how many clock tick interrupts have occurred

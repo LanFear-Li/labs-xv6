@@ -26,6 +26,7 @@ OBJS = \
   $K/sleeplock.o \
   $K/file.o \
   $K/pipe.o \
+  $K/signal.o \
   $K/exec.o \
   $K/sysfile.o \
   $K/kernelvec.o \
@@ -34,6 +35,7 @@ OBJS = \
 
 OBJS_KCSAN = \
   $K/start.o \
+  $K/tty.o \
   $K/console.o \
   $K/printf.o \
   $K/uart.o \
@@ -144,7 +146,7 @@ $U/initcode: $U/initcode.S
 tags: $(OBJS) _init
 	etags *.S *.c
 
-ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o
+ULIB = $U/ulib.o $U/ulib_asm.o $U/usys.o $U/printf.o $U/umalloc.o
 
 ifeq ($(LAB),$(filter $(LAB), pgtbl lock))
 ULIB += $U/statistics.o
@@ -160,6 +162,9 @@ $U/usys.S : $U/usys.pl
 
 $U/usys.o : $U/usys.S
 	$(CC) $(CFLAGS) -c -o $U/usys.o $U/usys.S
+
+$U/ulib_asm.o : $U/ulib_asm.S
+	$(CC) $(CFLAGS) -c -o $U/ulib_asm.o $U/ulib_asm.S
 
 $U/_forktest: $U/forktest.o $(ULIB)
 	# forktest has less library code linked in - needs to be small
@@ -197,6 +202,7 @@ UPROGS=\
 	$U/_pingpong\
 	$U/_primes\
 	$U/_find\
+	$U/_signal\
 
 
 ifeq ($(LAB),$(filter $(LAB), pgtbl lock))
@@ -291,7 +297,8 @@ endif
 
 FWDPORT = $(shell expr `id -u` % 5000 + 25999)
 
-QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
+QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic -monitor none
+QEMUOPTS += -serial stdio -serial pty
 QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
 QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 
@@ -299,6 +306,8 @@ ifeq ($(LAB),net)
 QEMUOPTS += -netdev user,id=net0,hostfwd=udp::$(FWDPORT)-:2000 -object filter-dump,id=net0,netdev=net0,file=packets.pcap
 QEMUOPTS += -device e1000,netdev=net0,bus=pcie.0
 endif
+
+all: $K/kernel fs.img
 
 qemu: $K/kernel fs.img
 	$(QEMU) $(QEMUOPTS)

@@ -7,6 +7,7 @@
 #include "kernel/syscall.h"
 #include "kernel/memlayout.h"
 #include "kernel/riscv.h"
+#include "kernel/signo.h"
 
 //
 // Tests xv6 system calls.  usertests without arguments runs them all
@@ -177,12 +178,12 @@ copyinstr2(char *s)
       printf("exec(echo, BIG) returned %d, not -1\n", fd);
       exit(1);
     }
-    exit(747); // OK
+    exit(133); // OK
   }
 
   int st = 0;
   wait(&st);
-  if(st != 747){
+  if(WEXITSTATUS(st) != 133){
     printf("exec(echo, BIG) succeeded, should have failed\n");
     exit(1);
   }
@@ -780,7 +781,7 @@ pipe1(char *s)
 }
 
 
-// test if child is killed (status = -1)
+// test if child is killed
 void
 killstatus(char *s)
 {
@@ -799,10 +800,10 @@ killstatus(char *s)
       exit(0);
     }
     sleep(1);
-    kill(pid1);
+    kill(pid1, SIGKILL);
     wait(&xst);
-    if(xst != -1) {
-       printf("%s: status should be -1\n", s);
+    if(WTERMSIG(xst) != SIGKILL) {
+       printf("%s: should be SIGKILL\n", s);
        exit(1);
     }
   }
@@ -856,9 +857,9 @@ preempt(char *s)
   }
   close(pfds[0]);
   printf("kill... ");
-  kill(pid1);
-  kill(pid2);
-  kill(pid3);
+  kill(pid1, SIGKILL);
+  kill(pid2, SIGKILL);
+  kill(pid3, SIGKILL);
   printf("wait... ");
   wait(0);
   wait(0);
@@ -914,7 +915,7 @@ reparent(char *s)
     } else {
       int pid2 = fork();
       if(pid2 < 0){
-        kill(master_pid);
+        kill(master_pid, SIGKILL);
         exit(1);
       }
       exit(0);
@@ -2223,7 +2224,7 @@ kernmem(char *s)
     }
     int xstatus;
     wait(&xstatus);
-    if(xstatus != -1)  // did kernel kill child?
+    if(WTERMSIG(xstatus) != SIGSEGV)  // did kernel kill child by SIGSEGV?
       exit(1);
   }
 }
@@ -2247,7 +2248,7 @@ MAXVAplus(char *s)
     }
     int xstatus;
     wait(&xstatus);
-    if(xstatus != -1)  // did kernel kill child?
+    if(WTERMSIG(xstatus) != SIGSEGV)  // did kernel kill child by SIGSEGV?
       exit(1);
   }
 }
@@ -2287,7 +2288,7 @@ sbrkfail(char *s)
   for(i = 0; i < sizeof(pids)/sizeof(pids[0]); i++){
     if(pids[i] == -1)
       continue;
-    kill(pids[i]);
+    kill(pids[i], SIGKILL);
     wait(0);
   }
   if(c == (char*)0xffffffffffffffffL){
@@ -2317,7 +2318,7 @@ sbrkfail(char *s)
     exit(1);
   }
   wait(&xstatus);
-  if(xstatus != -1 && xstatus != 2)
+  if(WTERMSIG(xstatus) != SIGSEGV)
     exit(1);
 }
 
@@ -2502,7 +2503,7 @@ stacktest(char *s)
     exit(1);
   }
   wait(&xstatus);
-  if(xstatus == -1)  // kernel killed child?
+  if(WTERMSIG(xstatus) == SIGSEGV)  // kernel killed child by SIGSEGV?
     exit(0);
   else
     exit(xstatus);
