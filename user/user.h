@@ -51,6 +51,7 @@ void free(void*);
 int atoi(const char*);
 int memcmp(const void *, const void *, uint);
 void *memcpy(void *, const void *, uint);
+char *strtok(char *str, char *filter);
 
 // signal.S
 void sigrestorer();

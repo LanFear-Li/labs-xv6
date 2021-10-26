@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     }
     prime(buffer, N - 1, fd[pipeline]);
 
-	int pid = fork();
+    int pid = fork();
     /* reduce other process */
     while (pid == 0) {
         int buffer[N];
@@ -51,6 +51,6 @@ int main(int argc, char *argv[]) {
         pid = fork();
     }
 
-    while(wait(NULL) > 0);
+    while (wait(NULL) > 0);
     exit(0);
 }
