@@ -2,18 +2,20 @@
 #include "kernel/signo.h"
 #include "user/user.h"
 
-static int counter = 0;
-
 static void handler(int signo) {
-    sigaction(SIGUSR1, SIG_IGN, sigrestorer);
-    printf("received: %d, signo: %d\n", counter++, signo);
-    sigaction(SIGUSR1, handler, sigrestorer);
+    wait(0);
+    printf("handle child exit: wait\n");
 }
 
 int main() {
     char ch;
-    sigaction(SIGUSR1, handler, sigrestorer);
-    printf("Press enter to exit!\n");
-    while (~read(1, &ch, 1));
+    sigaction(SIGCHLD, handler, sigrestorer);
+
+    if (fork() == 0) {
+        read(0, &ch, 1);
+        exit(0);
+    }
+
+    while(1);
     exit(0);
 }
