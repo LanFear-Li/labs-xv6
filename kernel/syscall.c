@@ -173,6 +173,7 @@ static char *syscall_name[] = {
 };
 
 void syscall(void) {
+
     int num;
     struct proc *p = myproc();
 
@@ -181,16 +182,12 @@ void syscall(void) {
         p->trapframe->a0 = syscalls[num]();
 
         int mask = p->mask;
-        int shift = 1;
-        for (int i = 1; i <= 22; i++) {
-            shift <<= 1;
-            if (shift == (shift & mask)) {
-                printf("syscall %s -> %ld\n", syscall_name[i], p->trapframe->a0);
-            }
+        int shift = 1 << num;
+        if (shift == (shift & mask)) {
+            printf("%d: syscall %s -> %d\n", p->pid, syscall_name[num], p->trapframe->a0);
         }
     } else {
-        printf("%d %s: unknown sys call %d\n",
-               p->pid, p->name, num);
+        printf("%d %s: unknown sys call %d\n", p->pid, p->name, num);
         p->trapframe->a0 = -1;
     }
 }

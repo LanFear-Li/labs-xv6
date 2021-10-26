@@ -63,7 +63,6 @@ uint64 sys_sleep(void) {
 
 uint64 sys_kill(void) {
     int pid;
-
     if (argint(0, &pid) < 0)
         return -1;
     return kill(pid);
@@ -88,5 +87,5 @@ uint64 sys_trace(void) {
 
     struct proc *p = myproc();
     p->mask = mask;
-    return mask;
+    return 0;
 }
