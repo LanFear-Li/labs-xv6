@@ -1,8 +1,9 @@
 #include "kernel/types.h"
 #include "kernel/stat.h"
+#include "kernel/signo.h"
 #include "user/user.h"
 
-#define N       1000
+#define N       128
 #define NULL    0
 
 int vis[N];

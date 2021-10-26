@@ -18,9 +18,13 @@ void            bpin(struct buf*);
 void            bunpin(struct buf*);
 
 // console.c
-void            consoleinit(void);
-void            consoleintr(int);
-void            consputc(int);
+void            consoleinit();
+void            consoleintr(int, int);
+void            consputc(int, int);
+
+// tty.c
+void            ttyinit();
+void            ttyintr(int, int);
 
 // exec.c
 int             exec(char*, char**);
@@ -89,7 +93,7 @@ int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
-int             kill(int);
+int             kill(int, int);
 struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
 struct proc*    myproc();
@@ -104,6 +108,10 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+int             get_tty(struct proc *);
+void            set_tty(struct proc *, int);
+int             signal_tty(int, int);
+void            bad_area(void);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -147,11 +155,12 @@ extern struct spinlock tickslock;
 void            usertrapret(void);
 
 // uart.c
-void            uartinit(void);
-void            uartintr(void);
-void            uartputc(int);
-void            uartputc_sync(int);
-int             uartgetc(void);
+void            uartinit(int);
+void            uartintr(int);
+void            uartputc(int, int);
+void            uartputc_sync(int, int);
+int             uartgetc(int);
+int             uartirq(int irq);
 
 // vm.c
 void            kvminit(void);

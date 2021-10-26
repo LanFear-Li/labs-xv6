@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "signal.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -49,12 +50,12 @@ usertrap(void)
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
-  
+
   if(r_scause() == 8){
     // system call
 
     if(p->killed)
-      exit(-1);
+      exit(255);
 
     // sepc points to the ecall instruction,
     // but we want to return to the next instruction.
@@ -70,11 +71,12 @@ usertrap(void)
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    p->killed = 1;
+    bad_area();
   }
 
-  if(p->killed)
-    exit(-1);
+  if(p->killed) {
+    exit(255);
+  }
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
@@ -90,6 +92,9 @@ void
 usertrapret(void)
 {
   struct proc *p = myproc();
+
+  // Check pending signals
+  signal_deliver();
 
   // we're about to switch the destination of traps from
   // kerneltrap() to usertrap(), so turn off interrupts until
@@ -183,10 +188,10 @@ devintr()
     // this is a supervisor external interrupt, via PLIC.
 
     // irq indicates which device interrupted.
-    int irq = plic_claim();
+    int irq = plic_claim(), uart_id;
 
-    if(irq == UART0_IRQ){
-      uartintr();
+    if((uart_id = uartirq(irq)) >= 0){
+      uartintr(uart_id);
     } else if(irq == VIRTIO0_IRQ){
       virtio_disk_intr();
     } else if(irq){

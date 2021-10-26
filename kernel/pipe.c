@@ -7,6 +7,7 @@
 #include "fs.h"
 #include "sleeplock.h"
 #include "file.h"
+#include "signal.h"
 
 #define PIPESIZE 512
 
@@ -81,7 +82,7 @@ pipewrite(struct pipe *pi, uint64 addr, int n)
 
   acquire(&pi->lock);
   while(i < n){
-    if(pi->readopen == 0 || pr->killed){
+    if(pi->readopen == 0 || pr->killed || signal_pending()){
       release(&pi->lock);
       return -1;
     }
@@ -111,7 +112,7 @@ piperead(struct pipe *pi, uint64 addr, int n)
 
   acquire(&pi->lock);
   while(pi->nread == pi->nwrite && pi->writeopen){  //DOC: pipe-empty
-    if(pr->killed){
+    if(pr->killed || signal_pending()){
       release(&pi->lock);
       return -1;
     }

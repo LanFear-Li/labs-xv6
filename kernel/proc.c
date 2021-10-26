@@ -5,6 +5,8 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "signal.h"
+#include "signo.h"
 
 struct cpu cpus[NCPU];
 
@@ -135,6 +137,13 @@ found:
     return 0;
   }
 
+  // Init signal descriptor
+  if (signal_init(p) < 0) {
+      freeproc(p);
+      release(&p->lock);
+      return 0;
+  }
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -150,6 +159,7 @@ found:
 static void
 freeproc(struct proc *p)
 {
+  signal_deinit(p);
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
@@ -162,7 +172,7 @@ freeproc(struct proc *p)
   p->name[0] = 0;
   p->chan = 0;
   p->killed = 0;
-  p->xstate = 0;
+  p->xstate.val = 0;
   p->state = UNUSED;
 }
 
@@ -242,6 +252,9 @@ userinit(void)
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
+  // init is a daemon process
+  p->tty = -1;
+
   p->state = RUNNABLE;
 
   release(&p->lock);
@@ -292,6 +305,13 @@ fork(void)
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
+  // copy signal handlers
+  if(signal_copy(np, p) < 0) {
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
@@ -302,6 +322,9 @@ fork(void)
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
+
+  // copy control tty
+  np->tty = p->tty;
 
   pid = np->pid;
 
@@ -364,11 +387,14 @@ exit(int status)
   reparent(p);
 
   // Parent might be sleeping in wait().
+  acquire(&p->parent->lock);
+  signal_send(p->parent, SIGCHLD);
+  release(&p->parent->lock);
   wakeup(p->parent);
   
   acquire(&p->lock);
 
-  p->xstate = status;
+  p->xstate.exit_status = status;
   p->state = ZOMBIE;
 
   release(&wait_lock);
@@ -417,7 +443,7 @@ wait(uint64 addr)
     }
 
     // No point waiting if we don't have any children.
-    if(!havekids || p->killed){
+    if(!havekids || p->killed || signal_pending()){
       release(&wait_lock);
       return -1;
     }
@@ -576,17 +602,18 @@ wakeup(void *chan)
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
 int
-kill(int pid)
+kill(int pid, int signo)
 {
   struct proc *p;
+  int ret;
 
   for(p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
     if(p->pid == pid){
-      p->killed = 1;
-      if(p->state == SLEEPING){
-        // Wake process from sleep().
-        p->state = RUNNABLE;
+      ret = signal_send(p, signo);
+      if (ret < 0) {
+        release(&p->lock);
+        return ret;
       }
       release(&p->lock);
       return 0;
@@ -650,7 +677,51 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s", p->pid, state, p->name);
+    printf("%d %s %s ", p->pid, state, p->name);
+    if (p->tty == -1) {
+      printf("daemon");
+    } else {
+      printf("tty%d", p->tty);
+    }
     printf("\n");
   }
+}
+
+int get_tty(struct proc *p) {
+    int tty;
+    acquire(&p->lock);
+    tty = p->tty;
+    release(&p->lock);
+    return tty;
+}
+
+void set_tty(struct proc *p, int tty) {
+    acquire(&p->lock);
+    p->tty = tty;
+    release(&p->lock);
+}
+
+int signal_tty(int tty, int signo) {
+    struct proc *p;
+    int ret;
+
+    for(p = proc; p < &proc[NPROC]; p++){
+        acquire(&p->lock);
+        if(p->tty == tty && p->sigdesc){
+            ret = signal_send(p, signo);
+            if (ret < 0) {
+                release(&p->lock);
+                return ret;
+            }
+        }
+        release(&p->lock);
+    }
+    return 0;
+}
+
+void bad_area(void) {
+    struct proc *p = myproc();
+    acquire(&p->lock);
+    signal_send(p, SIGSEGV);
+    release(&p->lock);
 }

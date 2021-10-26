@@ -3,6 +3,7 @@
 #include "kernel/types.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
+#include "kernel/signo.h"
 
 // Parsed command representation
 #define EXEC  1
@@ -53,6 +54,24 @@ int fork1(void);  // Fork but panics on failure.
 void panic(char*);
 struct cmd *parsecmd(char*);
 
+static char *sigmsg[32] = {
+        [SIGKILL] = "Killed",
+        [SIGSEGV] = "Segmentation Fault",
+        [SIGSTOP] = "Stopped",
+        [SIGABRT] = "Aborted",
+        [SIGINT] = "Interrupted",
+        [SIGTERM] = "Terminated",
+        [SIGTRAP] = "Trap"
+};
+
+void waitinfo() {
+    int status;
+    wait(&status);
+    if (WIFSIGNALED(status)) {
+        printf("%s\n", sigmsg[WTERMSIG(status)]);
+    }
+}
+
 // Execute cmd.  Never returns.
 void
 runcmd(struct cmd *cmd)
@@ -75,6 +94,8 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       exit(1);
+    sigaction(SIGTERM, SIG_DFL, sigrestorer);
+    sigaction(SIGINT, SIG_DFL, sigrestorer);
     exec(ecmd->argv[0], ecmd->argv);
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
     break;
@@ -93,7 +114,7 @@ runcmd(struct cmd *cmd)
     lcmd = (struct listcmd*)cmd;
     if(fork1() == 0)
       runcmd(lcmd->left);
-    wait(0);
+    waitinfo();
     runcmd(lcmd->right);
     break;
 
@@ -117,8 +138,8 @@ runcmd(struct cmd *cmd)
     }
     close(p[0]);
     close(p[1]);
-    wait(0);
-    wait(0);
+    waitinfo();
+    waitinfo();
     break;
 
   case BACK:
@@ -147,6 +168,9 @@ main(void)
   static char buf[100];
   int fd;
 
+  sigaction(SIGINT, SIG_IGN, sigrestorer);
+  sigaction(SIGTERM, SIG_IGN, sigrestorer);
+
   // Ensure that three file descriptors are open.
   while((fd = open("console", O_RDWR)) >= 0){
     if(fd >= 3){
@@ -166,7 +190,7 @@ main(void)
     }
     if(fork1() == 0)
       runcmd(parsecmd(buf));
-    wait(0);
+    waitinfo();
   }
   exit(0);
 }

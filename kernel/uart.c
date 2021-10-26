@@ -10,10 +10,26 @@
 #include "proc.h"
 #include "defs.h"
 
+struct uart {
+    unsigned long base;
+    int irq;
+
+    // the transmit output buffer.
+    struct spinlock tx_lock;
+#define UART_TX_BUF_SIZE 32
+    char tx_buf[UART_TX_BUF_SIZE];
+    uint64 tx_w; // write next to uart_tx_buf[uart_tx_w % UART_TX_BUF_SIZE]
+    uint64 tx_r; // read next from uart_tx_buf[uart_tx_r % UART_TX_BUF_SIZE]
+} uart[] = {
+    { UART0, UART0_IRQ },
+    { UART1, UART1_IRQ },
+    { 0 }
+};
+
 // the UART control registers are memory-mapped
 // at address UART0. this macro returns the
 // address of one of the registers.
-#define Reg(reg) ((volatile unsigned char *)(UART0 + reg))
+#define Reg(i, reg) ((volatile unsigned char *)(uart[i].base + (reg)))
 
 // the UART control registers.
 // some have different meanings for
@@ -35,46 +51,39 @@
 #define LSR_RX_READY (1<<0)   // input is waiting to be read from RHR
 #define LSR_TX_IDLE (1<<5)    // THR can accept another character to send
 
-#define ReadReg(reg) (*(Reg(reg)))
-#define WriteReg(reg, v) (*(Reg(reg)) = (v))
-
-// the transmit output buffer.
-struct spinlock uart_tx_lock;
-#define UART_TX_BUF_SIZE 32
-char uart_tx_buf[UART_TX_BUF_SIZE];
-uint64 uart_tx_w; // write next to uart_tx_buf[uart_tx_w % UART_TX_BUF_SIZE]
-uint64 uart_tx_r; // read next from uart_tx_buf[uart_tx_r % UART_TX_BUF_SIZE]
+#define ReadReg(i, reg) (*(Reg(i, reg)))
+#define WriteReg(i, reg, v) (*(Reg(i, reg)) = (v))
 
 extern volatile int panicked; // from printf.c
 
-void uartstart();
+void uartstart(int);
 
 void
-uartinit(void)
+uartinit(int i)
 {
   // disable interrupts.
-  WriteReg(IER, 0x00);
+  WriteReg(i, IER, 0x00);
 
   // special mode to set baud rate.
-  WriteReg(LCR, LCR_BAUD_LATCH);
+  WriteReg(i, LCR, LCR_BAUD_LATCH);
 
   // LSB for baud rate of 38.4K.
-  WriteReg(0, 0x03);
+  WriteReg(i, 0, 0x03);
 
   // MSB for baud rate of 38.4K.
-  WriteReg(1, 0x00);
+  WriteReg(i, 1, 0x00);
 
   // leave set-baud mode,
   // and set word length to 8 bits, no parity.
-  WriteReg(LCR, LCR_EIGHT_BITS);
+  WriteReg(i, LCR, LCR_EIGHT_BITS);
 
   // reset and enable FIFOs.
-  WriteReg(FCR, FCR_FIFO_ENABLE | FCR_FIFO_CLEAR);
+  WriteReg(i, FCR, FCR_FIFO_ENABLE | FCR_FIFO_CLEAR);
 
   // enable transmit and receive interrupts.
-  WriteReg(IER, IER_TX_ENABLE | IER_RX_ENABLE);
+  WriteReg(i, IER, IER_TX_ENABLE | IER_RX_ENABLE);
 
-  initlock(&uart_tx_lock, "uart");
+  initlock(&uart[i].tx_lock, "uart");
 }
 
 // add a character to the output buffer and tell the
@@ -84,9 +93,11 @@ uartinit(void)
 // from interrupts; it's only suitable for use
 // by write().
 void
-uartputc(int c)
+uartputc(int i, int c)
 {
-  acquire(&uart_tx_lock);
+  struct uart *u = &uart[i];
+
+  acquire(&u->tx_lock);
 
   if(panicked){
     for(;;)
@@ -94,15 +105,15 @@ uartputc(int c)
   }
 
   while(1){
-    if(uart_tx_w == uart_tx_r + UART_TX_BUF_SIZE){
+    if(u->tx_w == u->tx_r + UART_TX_BUF_SIZE){
       // buffer is full.
       // wait for uartstart() to open up space in the buffer.
-      sleep(&uart_tx_r, &uart_tx_lock);
+      sleep(&u->tx_r, &u->tx_lock);
     } else {
-      uart_tx_buf[uart_tx_w % UART_TX_BUF_SIZE] = c;
-      uart_tx_w += 1;
-      uartstart();
-      release(&uart_tx_lock);
+      u->tx_buf[u->tx_w % UART_TX_BUF_SIZE] = c;
+      u->tx_w += 1;
+      uartstart(i);
+      release(&u->tx_lock);
       return;
     }
   }
@@ -113,7 +124,7 @@ uartputc(int c)
 // to echo characters. it spins waiting for the uart's
 // output register to be empty.
 void
-uartputc_sync(int c)
+uartputc_sync(int i, int c)
 {
   push_off();
 
@@ -123,9 +134,9 @@ uartputc_sync(int c)
   }
 
   // wait for Transmit Holding Empty to be set in LSR.
-  while((ReadReg(LSR) & LSR_TX_IDLE) == 0)
+  while((ReadReg(i, LSR) & LSR_TX_IDLE) == 0)
     ;
-  WriteReg(THR, c);
+  WriteReg(i, THR, c);
 
   pop_off();
 }
@@ -135,39 +146,41 @@ uartputc_sync(int c)
 // caller must hold uart_tx_lock.
 // called from both the top- and bottom-half.
 void
-uartstart()
+uartstart(int i)
 {
+  struct uart *u = &uart[i];
+
   while(1){
-    if(uart_tx_w == uart_tx_r){
+    if(u->tx_w == u->tx_r){
       // transmit buffer is empty.
       return;
     }
     
-    if((ReadReg(LSR) & LSR_TX_IDLE) == 0){
+    if((ReadReg(i, LSR) & LSR_TX_IDLE) == 0){
       // the UART transmit holding register is full,
       // so we cannot give it another byte.
       // it will interrupt when it's ready for a new byte.
       return;
     }
     
-    int c = uart_tx_buf[uart_tx_r % UART_TX_BUF_SIZE];
-    uart_tx_r += 1;
+    int c = u->tx_buf[u->tx_r % UART_TX_BUF_SIZE];
+    u->tx_r += 1;
     
     // maybe uartputc() is waiting for space in the buffer.
-    wakeup(&uart_tx_r);
+    wakeup(&u->tx_r);
     
-    WriteReg(THR, c);
+    WriteReg(i, THR, c);
   }
 }
 
 // read one input character from the UART.
 // return -1 if none is waiting.
 int
-uartgetc(void)
+uartgetc(int i)
 {
-  if(ReadReg(LSR) & 0x01){
+  if(ReadReg(i, LSR) & 0x01){
     // input data is ready.
-    return ReadReg(RHR);
+    return ReadReg(i, RHR);
   } else {
     return -1;
   }
@@ -177,18 +190,30 @@ uartgetc(void)
 // arrived, or the uart is ready for more output, or
 // both. called from trap.c.
 void
-uartintr(void)
+uartintr(int i)
 {
+  struct uart *u = &uart[i];
+
   // read and process incoming characters.
   while(1){
-    int c = uartgetc();
+    int c = uartgetc(i);
     if(c == -1)
       break;
-    consoleintr(c);
+    consoleintr(i, c);
   }
 
   // send buffered characters.
-  acquire(&uart_tx_lock);
-  uartstart();
-  release(&uart_tx_lock);
+  acquire(&u->tx_lock);
+  uartstart(i);
+  release(&u->tx_lock);
+}
+
+int uartirq(int irq) {
+    struct uart *u;
+    for (u = uart; u->base; u++) {
+        if (u->irq == irq) {
+            return (int) (u - uart);
+        }
+    }
+    return -1;
 }
