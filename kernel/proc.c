@@ -640,7 +640,7 @@ procdump(void) {
     }
 }
 
-int proc_num(void)
+int proc_num(void) {
     struct proc *p;
     int count = 0;
 
