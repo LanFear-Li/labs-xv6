@@ -186,7 +186,7 @@ void syscall(void) {
 
         int mask = p->mask;
         int shift = 1 << num;
-        if (shift == (shift & mask)) {
+        if (shift & mask) {
             printf("%d: syscall %s -> %d\n", p->pid, syscall_name[num], p->trapframe->a0);
         }
     } else {
