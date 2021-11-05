@@ -104,6 +104,7 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_pgaccess(void);
 #ifdef LAB_NET
 extern uint64 sys_connect(void);
 #endif
