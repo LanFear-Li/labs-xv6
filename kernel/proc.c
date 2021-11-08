@@ -654,3 +654,20 @@ procdump(void) {
         printf("\n");
     }
 }
+
+int pgaccess(uint64 va, int n, uint64 ua) {
+    int bitmask = 0;
+    struct proc *p = myproc();
+    pagetable_t pt = p->pagetable;
+
+    for (int i = 0; i < n; i++) {
+        pte_t *pte = walk(pt, va + i * PGSIZE, 0);
+
+        if (pte && (*pte & PTE_A)) {
+            bitmask |= 1 << i;
+            *pte ^= PTE_A;
+        }
+    }
+
+    return copyout(pt, ua, (char *) &bitmask, sizeof(int));
+}
