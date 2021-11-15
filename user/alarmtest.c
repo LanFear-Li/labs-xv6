@@ -18,6 +18,8 @@ void test1();
 
 void test2();
 
+void test3();
+
 void periodic();
 
 void slow_handler();
@@ -137,6 +139,18 @@ test2() {
     if (status == 0) {
         printf("test2 passed\n");
     }
+}
+
+// tests whether the kernel calls
+// the alarm handler even a single time.
+void
+test3() {
+    printf("test3 start\n");
+    count = 0;
+    sigalarm(2, periodic);
+    char str;
+    read(0, &str, 1);
+    sigalarm(0, 0);
 }
 
 void
